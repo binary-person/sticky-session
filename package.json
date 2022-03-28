@@ -1,11 +1,21 @@
 {
-  "name": "sticky-session",
-  "description": "Sticky session balancer based on a `cluster` module",
+  "name": "sticky-session-custom",
+  "description": "Custom sticky session load balancer based on the `cluster` module",
   "version": "1.0.2",
-  "author": "Fedor Indutny <fedor.indutny@gmail.com>",
+  "author": "Simon Cheng <loopingthroughlife@gmail.com>",
+  "contributors": ["Fedor Indutny <fedor.indutny@gmail.com>", "Alex Wolden <awolden@gmail.com>"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/binary-person/sticky-session-custom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/binary-person/sticky-session-custom/issues"
+  },
+  "homepage": "https://github.com/binary-person/sticky-session-custom#readme",
   "main": "./lib/sticky-session",
   "dependencies": {
     "debug": "^2.2.0",
+    "http-parser-js": "^0.5.6",
     "ip": "^1.0.0"
   },
   "engines": {
@@ -17,7 +27,6 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "jscs lib/*.js lib/**/*.js && jshint lib/*.js lib/**/*.js && node test/test-basic.js"
-  },
-  "optionalDependencies": {}
+    "test": "jshint lib/*.js lib/**/*.js && node test/test-basic.js"
+  }
 }

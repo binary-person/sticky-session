@@ -1,20 +1,24 @@
-# Sticky session
+# Sticky session, but you choose what sticks
 
-A simple performant way to use [socket.io][0] with a [cluster][1].
+> this module is a fork of a [pull request][4] that attempted to solve the reverse proxy issue, but given that no one maintains it anymore (last commit was more than half a decade ago), package uses a deprecated API, and a needed feature for custom sticky logic, it was best to create a separate package altogether.
+
+A simple flexible way to load balance your session-based or [socket.io][0] apps with a [cluster][1].
 
 ## Installation
 
 ```bash
-npm install sticky-session
+npm install sticky-session-custom
 ```
 
 ## Usage
 
-##### Simple #####
+##### Balancing based on direct IP connection #####
+
+This is the fastest since the load balancer doesn't need to parse any HTTP headers.
 
 ```javascript
 var cluster = require('cluster'); // Only required if you want the worker id
-var sticky = require('sticky-session');
+var sticky = require('sticky-session-custom');
 
 var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
@@ -31,15 +35,15 @@ if (!sticky.listen(server, 3000)) {
 ```
 
 
-##### Reverse Proxy Support #####
+##### Balancing based on a header like `x-forwarded-for` #####
 
-By default the Node `net` library only provides `remoteAddress`. This is problematic when your node app lives behind a reverse proxy. Below is an example of using sticky-session to load balance based on an arbitrary http header.
+For running behind a reverse proxy that uses a header for sending over the client IP, specify that header using `proxyHeader`.
 
-**Warning:** The reverse proxy feature parses the first incoming http packet before load balancing it (in order to read the header), this may lead to performance issues.
+**Note that this approach is a bit slower as it needs to first parse the request headers.**
 
 ```javascript
 var cluster = require('cluster'); // Only required if you want the worker id
-var sticky = require('sticky-session');
+var sticky = require('sticky-session-custom');
 
 var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
@@ -47,7 +51,7 @@ var server = require('http').createServer(function(req, res) {
 
 let isChild = sticky.listen(server, 3000, {
   workers: 8,
-  proxyHeader: 'x-forwarded-for'//header to read for IP
+  proxyHeader: 'x-forwarded-for' // header to read for IP
 });
 
 if (!isChild) {
@@ -61,8 +65,48 @@ if (!isChild) {
 ```
 
 
+##### Custom Balancing Logic #####
 
-## Reasoning
+If you want more control over what sticks, you can specify a custom function that generates an array of numbers to be hashed, which determines the worker to forward to. Below is an example of forwarding authenticated requests to the same worker.
+
+**Note that this approach is a bit slower as it needs to first parse the request headers.**
+
+```javascript
+var cluster = require('cluster'); // Only required if you want the worker id
+var sticky = require('sticky-session-custom');
+
+var server = require('http').createServer(function(req, res) {
+  res.end('worker: ' + cluster.worker.id);
+});
+
+let isChild = sticky.listen(server, 3000, {
+  workers: 8,
+  generatePrehashArray: (socket, req) => {
+      // use socket.remoteAddress for getting the true IP of the connection,
+      // (though in that case, you should not specify generatePrehashArray but
+      // instead, let the built-in code take care of it)
+
+      const parsed = new URL(req.url, 'https://dummyurl.example.com');
+      // you can use '' instead of Math.random() if you want to use a consistent worker
+      // for all unauthenticated requests
+      const userToken = parsed.searchParams.get('token') || Math.random().toString();
+      // turn string into an array of numbers for hashing
+      return userToken.split('').filter(e => !!e).map(e => e.charCodeAt());
+  }
+});
+
+if (!isChild) {
+  // Master code
+  server.once('listening', function() {
+    console.log('server started on 3000 port');
+  });
+} else {
+  // Worker code
+}
+```
+
+
+## Reason for sticky sessions (for socket.io)
 
 Socket.io is doing multiple requests to perform handshake and establish
 connection with a client. With a `cluster` those requests may arrive to
@@ -109,3 +153,4 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 [1]: http://nodejs.org/docs/latest/api/cluster.html
 [2]: https://nodejs.org/api/net.html#net_net_createserver_options_connectionlistener
 [3]: https://github.com/elad/node-cluster-socket.io
+[4]: https://github.com/indutny/sticky-session/pull/45
