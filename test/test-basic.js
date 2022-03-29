@@ -11,7 +11,7 @@ var server = http.createServer(function(req, res) {
   res.end('hello world');
 });
 
-if (sticky.listen(server, PORT))
+if (!sticky.listen(server, PORT))
   return;
 
 // Master
