@@ -1,7 +1,7 @@
 {
   "name": "sticky-session-custom",
   "description": "Custom sticky session load balancer based on the `cluster` module",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "author": "Simon Cheng <loopingthroughlife@gmail.com>",
   "contributors": ["Fedor Indutny <fedor.indutny@gmail.com>", "Alex Wolden <awolden@gmail.com>"],
   "repository": {
