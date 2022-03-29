@@ -1,6 +1,6 @@
 # Sticky session, but you choose what sticks
 
-> this module is a fork of a [pull request][4] that attempted to solve the reverse proxy issue, but given that no one maintains it anymore (last commit was more than half a decade ago), package uses a deprecated API, and a needed feature for custom sticky logic, it was best to create a separate package altogether.
+> this module is a fork of a [pull request][4] that attempted to solve the reverse proxy issue, but given that no one maintains it anymore (last commit was more than half a decade ago), package uses a deprecated API, and a needed feature of asynchronous worker shutdown and custom sticky logic, it was best to create a separate package altogether.
 
 A simple flexible way to load balance your session-based or [socket.io][0] apps with a [cluster][1].
 
@@ -24,7 +24,7 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-if (!sticky.listen(server, 3000)) {
+if (sticky.listen(server, 3000)) {
   // Master code
   server.once('listening', function() {
     console.log('server started on 3000 port');
@@ -49,12 +49,12 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-let isChild = sticky.listen(server, 3000, {
+var closeMaster = sticky.listen(server, 3000, {
   workers: 8,
   proxyHeader: 'x-forwarded-for' // header to read for IP
 });
 
-if (!isChild) {
+if (closeMaster) {
   // Master code
   server.once('listening', function() {
     console.log('server started on 3000 port');
@@ -69,7 +69,7 @@ if (!isChild) {
 
 If you want more control over what sticks, you can specify a custom function that generates an array of numbers to be hashed, which determines the worker to forward to. Below is an example of forwarding authenticated requests to the same worker.
 
-**Note that this approach is a bit slower as it needs to first parse the request headers.**
+**Note that this approach is a bit slower as it needs to first parse the request headers, (but if you don't need those, use generatePrehashArrayNoParsing instead)**
 
 ```javascript
 var cluster = require('cluster'); // Only required if you want the worker id
@@ -79,29 +79,69 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-let isChild = sticky.listen(server, 3000, {
+var closeMaster = sticky.listen(server, 3000, {
   workers: 8,
-  generatePrehashArray: (socket, req) => {
-      // use socket.remoteAddress for getting the true IP of the connection,
-      // (though in that case, you should not specify generatePrehashArray but
-      // instead, let the built-in code take care of it)
-
-      const parsed = new URL(req.url, 'https://dummyurl.example.com');
-      // you can use '' instead of Math.random() if you want to use a consistent worker
-      // for all unauthenticated requests
-      const userToken = parsed.searchParams.get('token') || Math.random().toString();
-      // turn string into an array of numbers for hashing
-      return userToken.split('').filter(e => !!e).map(e => e.charCodeAt());
+  generatePrehashArray(req, socket) {
+    var parsed = new URL(req.url, 'https://dummyurl.example.com');
+    // you can use '' instead of Math.random() if you want to use a consistent worker
+    // for all unauthenticated requests
+    var userToken = parsed.searchParams.get('token') || Math.random().toString();
+    // turn string into an array of numbers for hashing
+    return userToken.split('').filter(e => !!e).map(e => e.charCodeAt());
   }
 });
 
-if (!isChild) {
+if (closeMaster) {
   // Master code
   server.once('listening', function() {
     console.log('server started on 3000 port');
   });
 } else {
   // Worker code
+}
+```
+
+
+##### Shutting down gracefully #####
+
+If there is no listener for SIGINT in the worker, it calls `process.exit()` directly. Otherwise, it does `process.emit('SIGINT')` and lets the listener shut it down. For this module, it is best to be used in conjunction with `async-exit-hook`. 
+
+```javascript
+var cluster = require('cluster'); // Only required if you want the worker id
+var sticky = require('sticky-session-custom');
+var exitHook = require('async-exit-hook');
+
+var server = require('http').createServer(function(req, res) {
+  res.end('worker: ' + cluster.worker.id);
+});
+
+var closeMaster = sticky.listen(server, 3000);
+
+if (closeMaster) {
+  // Master code
+  server.once('listening', function() {
+    console.log('server started on 3000 port');
+    setTimeout(function () {
+      closeMaster(function () {
+        console.log('Closed master!');
+      }, false); // set to true if you want to wait for connections to close
+    }, 2000);
+  });
+} else {
+  // Worker code
+
+  exitHook(function(done) {
+    console.log('Worker received exit signal. Shutting down...');
+    setTimeout(function() {
+      console.log('shutdown');
+      done();
+    }, 3000);
+  });
+  
+  // you can also send a shutdown signal to the master like this.
+  // set to true if you want to wait for connections to close before
+  // shutting down workers
+  // process.send(['sticky:masterclose', false]);
 }
 ```
 
