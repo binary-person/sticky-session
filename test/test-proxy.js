@@ -11,7 +11,7 @@ var server = http.createServer(function(req, res) {
   res.end('hello world');
 });
 
-if (!sticky.listen(server, PORT, { proxyHeader: 'x-forwarded-for', workers: 8 }))
+if (!sticky.listen(server, PORT, '0.0.0.0', { proxyHeader: 'x-forwarded-for', workers: 8 }))
   return;
 
 // Master

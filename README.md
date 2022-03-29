@@ -49,7 +49,7 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-var closeMaster = sticky.listen(server, 3000, {
+var closeMaster = sticky.listen(server, 3000, '0.0.0.0', {
   workers: 8,
   proxyHeader: 'x-forwarded-for' // header to read for IP
 });
@@ -79,7 +79,7 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-var closeMaster = sticky.listen(server, 3000, {
+var closeMaster = sticky.listen(server, 3000, '0.0.0.0', {
   workers: 8,
   generatePrehashArray(req, socket) {
     var parsed = new URL(req.url, 'https://dummyurl.example.com');
