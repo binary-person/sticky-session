@@ -10,9 +10,15 @@ A simple flexible way to load balance your session-based or [socket.io][0] apps 
 npm install sticky-session-custom
 ```
 
-## Usage
+## Usage and examples
 
-##### Balancing based on direct IP connection #####
+- [Balancing based on direct IP connection](#balancing-based-on-direct-ip-connection)
+- [Balancing based on `x-forwarded-for`](#balancing-based-on-x-forwarded-for)
+- [Custom balancing logic](#custom-balancing-logic)
+- [Shutting down gracefully](#shutting-down-gracefully)
+- [Multiple HTTP servers](#multiple-http-servers)
+
+### Balancing based on direct IP connection ###
 
 This is the fastest since the load balancer doesn't need to parse any HTTP headers.
 
@@ -24,7 +30,9 @@ var server = require('http').createServer(function(req, res) {
   res.end('worker: ' + cluster.worker.id);
 });
 
-if (sticky.listen(server, 3000)) {
+if (sticky.listen(server, 3000, '0.0.0.0', {
+  workers: 4 // if workers is unset, it will use all the available cores in the system
+})) {
   // Master code
   server.once('listening', function() {
     console.log('server started on 3000 port');
@@ -35,14 +43,14 @@ if (sticky.listen(server, 3000)) {
 ```
 
 
-##### Balancing based on a header like `x-forwarded-for` #####
+### Balancing based on `x-forwarded-for` ###
 
 For running behind a reverse proxy that uses a header for sending over the client IP, specify that header using `proxyHeader`.
 
 **Note that this approach is a bit slower as it needs to first parse the request headers.**
 
 ```javascript
-var cluster = require('cluster'); // Only required if you want the worker id
+var cluster = require('cluster');
 var sticky = require('sticky-session-custom');
 
 var server = require('http').createServer(function(req, res) {
@@ -50,7 +58,6 @@ var server = require('http').createServer(function(req, res) {
 });
 
 var closeMaster = sticky.listen(server, 3000, '0.0.0.0', {
-  workers: 8,
   proxyHeader: 'x-forwarded-for' // header to read for IP
 });
 
@@ -65,14 +72,14 @@ if (closeMaster) {
 ```
 
 
-##### Custom Balancing Logic #####
+### Custom balancing logic ###
 
 If you want more control over what sticks, you can specify a custom function that generates an array of numbers to be hashed, which determines the worker to forward to. Below is an example of forwarding authenticated requests to the same worker.
 
 **Note that this approach is a bit slower as it needs to first parse the request headers, (but if you don't need those, use generatePrehashArrayNoParsing instead)**
 
 ```javascript
-var cluster = require('cluster'); // Only required if you want the worker id
+var cluster = require('cluster');
 var sticky = require('sticky-session-custom');
 
 var server = require('http').createServer(function(req, res) {
@@ -80,14 +87,13 @@ var server = require('http').createServer(function(req, res) {
 });
 
 var closeMaster = sticky.listen(server, 3000, '0.0.0.0', {
-  workers: 8,
   generatePrehashArray(req, socket) {
     var parsed = new URL(req.url, 'https://dummyurl.example.com');
     // you can use '' instead of Math.random() if you want to use a consistent worker
     // for all unauthenticated requests
     var userToken = parsed.searchParams.get('token') || Math.random().toString();
     // turn string into an array of numbers for hashing
-    return userToken.split('').filter(e => !!e).map(e => e.charCodeAt());
+    return (userToken.split('') || ' ').map(e => e.charCodeAt());
   }
 });
 
@@ -102,12 +108,12 @@ if (closeMaster) {
 ```
 
 
-##### Shutting down gracefully #####
+### Shutting down gracefully ###
 
 If there is no listener for SIGINT in the worker, it calls `process.exit()` directly. Otherwise, it does `process.emit('SIGINT')` and lets the listener shut it down. For this module, it is best to be used in conjunction with `async-exit-hook`. 
 
 ```javascript
-var cluster = require('cluster'); // Only required if you want the worker id
+var cluster = require('cluster');
 var sticky = require('sticky-session-custom');
 var exitHook = require('async-exit-hook');
 
@@ -138,7 +144,7 @@ if (closeMaster) {
     }, 3000);
   });
   
-  // you can also send a shutdown signal to the master like this.
+  // you can also send a shutdown signal to the master.
   // set to true if you want to wait for connections to close before
   // shutting down workers
   // process.send(['sticky:masterclose', false]);
@@ -146,29 +152,45 @@ if (closeMaster) {
 ```
 
 
-## Reason for sticky sessions (for socket.io)
+## Multiple HTTP servers ##
 
-Socket.io is doing multiple requests to perform handshake and establish
-connection with a client. With a `cluster` those requests may arrive to
-different workers, which will break handshake protocol.
+```javascript
+var cluster = require('cluster');
+var sticky = require('sticky-session-custom');
 
-Sticky-sessions module is balancing requests using their IP address. Thus
-client will always connect to same worker server, and socket.io will work as
-expected, but on multiple processes!
+var server1 = require('http').createServer(function (req, res) {
+  res.end('from server1, worker: ' + cluster.worker.id);
+});
 
-#### Note about `node` version
+var server2 = require('http').createServer(function (req, res) {
+  res.end('from server2, worker: ' + cluster.worker.id);
+});
 
-`sticky-session` requires `node` to be at least `0.12.0` because it relies on
-`net.createServer`'s [`pauseOnConnect` flag][2].
+var closeHandle = sticky.listen(server1, 3000);
+sticky.listen(server2, 3001, '0.0.0.0', {
+  // setting this to false will use workers of the first sticky instance spawned instead of
+  // spawning more workers (only works if the amount of workers are the same)
+  dontUseExistingWorkers: false
+});
 
-A deeper, step-by-step explanation on how this works can be found in
-[`elad/node-cluster-socket.io`][3]
+if (closeHandle) {
+  // Master code
+  server1.once('listening', function () {
+    console.log('server started on 3000 port');
+  });
+  server2.once('listening', function () {
+    console.log('server started on 3001 port');
+  });
+} else {
+  // Worker code
+}
+```
 
-#### LICENSE
+## LICENSE
 
 This software is licensed under the MIT License.
 
-Copyright Fedor Indutny, 2015.
+Copyright Simon Cheng, 2022.
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the
